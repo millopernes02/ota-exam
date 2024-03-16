@@ -3,6 +3,7 @@ import JSzip, { JSZipObject } from 'jszip'
 
 import FilesList from './components/FilesList'
 import CreateCopyModal from './components/CreateCopyModal'
+import { getLocalStorageItem, removeLocalStorageItem, setLocalStorageItem } from './utils/helpers'
 
 export interface FileProps {
   name: string
@@ -10,14 +11,20 @@ export interface FileProps {
 }
 
 function App() {
-  const [zipFile, setZipFile] = useState<File | null>(null)
-  const [isPaused, setIsPaused] = useState<boolean>(false)
-  const [extractedFiles, setExtractedFiles] = useState<Array<JSZipObject> | null>(null)
-  const [processedFiles, setProcessedFiles] = useState<Array<FileProps>>([])
+  const [zipFile, setZipFile] = useState<File | null>(getLocalStorageItem('zipFile') || null)
+  const [isPaused, setIsPaused] = useState<boolean>(getLocalStorageItem('isPaused') || false)
+  const [extractedFiles, setExtractedFiles] = useState<Array<JSZipObject> | null>(
+    getLocalStorageItem('extractedFiles') || null
+  )
+  const [processedFiles, setProcessedFiles] = useState<Array<FileProps>>(
+    getLocalStorageItem('processedFiles') || []
+  )
   const [error, setError] = useState<unknown | string | null>(null)
-  const [startExtracting, setStartExtracting] = useState<boolean>(false)
-  const [progress, setProgress] = useState<number>(0)
-  const [totalFiles, setTotalFiles] = useState<number>(0)
+  const [startExtracting, setStartExtracting] = useState<boolean>(
+    getLocalStorageItem('startExtracting') || false
+  )
+  const [progress, setProgress] = useState<number>(getLocalStorageItem('progress') || 0)
+  const [totalFiles, setTotalFiles] = useState<number>(getLocalStorageItem('totalFiles') || 0)
   const [progressPercentage, setProgressPercentage] = useState<number>(0)
   const [copyFileName, setCopyFileName] = useState<string>('')
   const [showModal, setShowModal] = useState<boolean>(false)
@@ -30,6 +37,7 @@ function App() {
       setProcessedFiles([])
       setProgressPercentage(0)
       setZipFile(file)
+      setLocalStorageItem('zipFile', file)
 
       if (file) {
         const zip = await JSzip.loadAsync(file)
@@ -43,7 +51,9 @@ function App() {
           }
         })
 
+        setLocalStorageItem('extractedFiles', files)
         setExtractedFiles(files)
+        setLocalStorageItem('totalFiles', extractedFilesLength)
         setTotalFiles(extractedFilesLength)
         setCopyFileName(`new_${file?.name?.replace('.zip', '')}`)
       }
@@ -66,14 +76,26 @@ function App() {
       const fileContent = await file?.async('blob')
 
       if (fileContent && !file?.dir) {
-        setProcessedFiles((oldState) => [
-          ...oldState,
-          {
-            name: splittedFileName?.[splittedFileName?.length - 1] || '',
-            content: fileContent,
-          },
-        ])
-        setProgress((oldState) => (oldState += 1))
+        setProcessedFiles((oldState) => {
+          const items = [
+            ...oldState,
+            {
+              name: splittedFileName?.[splittedFileName?.length - 1] || '',
+              content: fileContent,
+            },
+          ]
+
+          setLocalStorageItem('processedFiles', items)
+
+          return items
+        })
+        setProgress((oldState) => {
+          const newProgress = (oldState += 1)
+
+          setLocalStorageItem('progress', newProgress)
+
+          return newProgress
+        })
       }
     } catch (error: unknown | string) {
       setError(error)
@@ -110,9 +132,21 @@ function App() {
 
   useEffect(() => {
     const percentage: number = Math.round((progress / totalFiles) * 100)
+
     if (progress && totalFiles) {
       setProgressPercentage(percentage)
-      if (percentage === 100) setStartExtracting(false)
+
+      if (percentage === 100) {
+        setStartExtracting(false)
+        // Cleanup storage when file extracting reached 100%
+        removeLocalStorageItem('startExtracting')
+        removeLocalStorageItem('processedFiles')
+        removeLocalStorageItem('extractedFiles')
+        removeLocalStorageItem('progress')
+        removeLocalStorageItem('isPaused')
+        removeLocalStorageItem('totalFiles')
+        removeLocalStorageItem('zipFile')
+      }
     }
   }, [progress, totalFiles])
 
@@ -152,7 +186,10 @@ function App() {
           </button>
           {startExtracting && (
             <button
-              onClick={() => setIsPaused((oldValue) => !oldValue)}
+              onClick={() => {
+                setLocalStorageItem('isPaused', !isPaused)
+                setIsPaused((oldValue) => !oldValue)
+              }}
               className="bg-white text-slate-800 border-slate-800 py-2 px-4 rounded-lg capitalize font-semibold"
             >
               {isPaused ? 'continue' : 'pause'}
